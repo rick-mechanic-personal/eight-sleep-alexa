@@ -2,15 +2,8 @@
 // Reverse-engineered from the mobile app by the community.
 // Ref: https://github.com/lukas-clarke/eight_sleep, https://github.com/Apollo-Sunbeam/pyeight
 
-const AUTH_URL = 'https://auth-api.8slp.net';
 const APP_API_URL = 'https://app-api.8slp.net';
-const CLIENT_API_URL = 'https://client-api.8slp.net'; // fallback
-
-// Credentials embedded in the Eight Sleep Android APK.
-// Override via env vars if these stop working.
-const DEFAULT_CLIENT_ID = process.env.EIGHT_SLEEP_CLIENT_ID || '0894c7f33bb94800a03f1f4df13a4f38';
-const DEFAULT_CLIENT_SECRET =
-  process.env.EIGHT_SLEEP_CLIENT_SECRET || 'f0954a3ed5763ba4e44ec7191b7a2e7b';
+const CLIENT_API_URL = 'https://client-api.8slp.net';
 
 const USER_AGENT = 'Eight Sleep (com.eightsleep.app) / 7.39.17 platform/iOS';
 
@@ -96,28 +89,27 @@ async function getToken(): Promise<TokenCache> {
     throw new Error('EIGHT_SLEEP_EMAIL and EIGHT_SLEEP_PASSWORD env vars are required');
   }
 
-  const res = await fetch(`${AUTH_URL}/v1/tokens`, {
+  // Use the legacy login endpoint — does not require OAuth2 client credentials
+  const res = await fetch(`${CLIENT_API_URL}/v1/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
-    body: JSON.stringify({
-      grant_type: 'password',
-      username: email,
-      password,
-      client_id: DEFAULT_CLIENT_ID,
-      client_secret: DEFAULT_CLIENT_SECRET,
-    }),
+    body: JSON.stringify({ email, password }),
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Eight Sleep login failed (${res.status}): ${body}`);
+    const errText = await res.text();
+    throw new Error(`Eight Sleep login failed (${res.status}): ${errText}`);
   }
 
   const data = await res.json();
+  // Response shape: { session: { userId, token, expirationDate } }
+  const session = data.session ?? data;
   _cache = {
-    accessToken: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    userId: data.user_id ?? data.userId,
+    accessToken: session.token ?? session.access_token,
+    expiresAt: session.expirationDate
+      ? new Date(session.expirationDate).getTime()
+      : Date.now() + 3600 * 1000,
+    userId: session.userId ?? session.user_id,
   };
   return _cache;
 }
