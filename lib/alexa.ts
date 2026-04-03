@@ -12,10 +12,7 @@ export interface AlexaRequest {
       application: { applicationId: string };
     };
   };
-  request:
-    | LaunchRequest
-    | IntentRequest
-    | SessionEndedRequest;
+  request: LaunchRequest | IntentRequest | SessionEndedRequest;
 }
 
 interface LaunchRequest {
@@ -24,7 +21,7 @@ interface LaunchRequest {
   timestamp: string;
 }
 
-interface IntentRequest {
+export interface IntentRequest {
   type: 'IntentRequest';
   requestId: string;
   timestamp: string;
@@ -70,44 +67,56 @@ export function ask(text: string, reprompt: string): AlexaResponse {
   };
 }
 
-export function getSlot(req: AlexaRequest, slotName: string): string | undefined {
+export function getSlot(req: AlexaRequest, name: string): string | undefined {
   if (req.request.type !== 'IntentRequest') return undefined;
-  return req.request.intent.slots?.[slotName]?.value;
+  return (req.request as IntentRequest).intent.slots?.[name]?.value;
 }
 
-// Convert Alexa AMAZON.TIME value ("07:30", "07:30:00", "MO07:30") to "HH:MM"
+/** Alexa AMAZON.TIME ("07:30", "07:30:00", "MO07:30") → "HH:MM:SS" */
 export function parseAlexaTime(value: string): string | null {
-  // Strip day prefix if present (e.g. "MO07:30")
   const cleaned = value.replace(/^[A-Z]{2}/, '');
   const parts = cleaned.split(':');
-  if (parts.length >= 2) {
-    const h = parts[0].padStart(2, '0');
-    const m = parts[1].padStart(2, '0');
-    return `${h}:${m}`;
-  }
-  return null;
+  if (parts.length < 2) return null;
+  const h = parts[0].padStart(2, '0');
+  const m = parts[1].padStart(2, '0');
+  return `${h}:${m}:00`;
 }
 
-// Convert Alexa AMAZON.DURATION "PT9M" -> minutes number
+/** Alexa AMAZON.DURATION "PT9M" or "PT1H" → minutes */
 export function parseDuration(value: string): number {
-  const match = value.match(/PT(\d+)M/i);
-  if (match) return parseInt(match[1], 10);
-  const hoursMatch = value.match(/PT(\d+)H/i);
-  if (hoursMatch) return parseInt(hoursMatch[1], 10) * 60;
-  return 9; // default snooze
+  const mMatch = value.match(/PT(\d+)M/i);
+  if (mMatch) return parseInt(mMatch[1], 10);
+  const hMatch = value.match(/PT(\d+)H/i);
+  if (hMatch) return parseInt(hMatch[1], 10) * 60;
+  return 9;
 }
 
-// Convert Alexa AMAZON.DayOfWeek to Eight Sleep 3-letter codes
-const DAY_MAP: Record<string, string> = {
-  monday: 'MON',
-  tuesday: 'TUE',
-  wednesday: 'WED',
-  thursday: 'THU',
-  friday: 'FRI',
-  saturday: 'SAT',
-  sunday: 'SUN',
+/** Alexa AMAZON.DayOfWeek → full lowercase day name */
+const DAY_MAP: Record<string, keyof import('./eight-sleep').AlarmRepeat['weekDays']> = {
+  monday: 'monday',
+  tuesday: 'tuesday',
+  wednesday: 'wednesday',
+  thursday: 'thursday',
+  friday: 'friday',
+  saturday: 'saturday',
+  sunday: 'sunday',
+  // aliases Alexa sometimes returns
+  mon: 'monday',
+  tue: 'tuesday',
+  wed: 'wednesday',
+  thu: 'thursday',
+  fri: 'friday',
+  sat: 'saturday',
+  sun: 'sunday',
 };
 
-export function parseDay(value: string): string | null {
+export function parseDay(value: string): keyof import('./eight-sleep').AlarmRepeat['weekDays'] | null {
   return DAY_MAP[value.toLowerCase()] ?? null;
+}
+
+/** "gentle" / "rise" → RISE,  "strong" / "intense" / "double" → intense */
+export function parseVibrationPattern(value: string): 'RISE' | 'intense' {
+  const v = value.toLowerCase();
+  if (v.includes('strong') || v.includes('intense') || v.includes('double')) return 'intense';
+  return 'RISE';
 }

@@ -1,82 +1,107 @@
 // Eight Sleep unofficial API client
-// API reverse-engineered from the mobile app by the community
+// Reverse-engineered from the mobile app by the community.
 // Ref: https://github.com/lukas-clarke/eight_sleep, https://github.com/Apollo-Sunbeam/pyeight
 
 const AUTH_URL = 'https://auth-api.8slp.net';
-const CLIENT_URL = 'https://client-api.8slp.net';
+const APP_API_URL = 'https://app-api.8slp.net';
+const CLIENT_API_URL = 'https://client-api.8slp.net'; // fallback
 
-// Credentials extracted from the Eight Sleep Android APK by the community.
+// Credentials embedded in the Eight Sleep Android APK.
 // Override via env vars if these stop working.
 const DEFAULT_CLIENT_ID = process.env.EIGHT_SLEEP_CLIENT_ID || '0894c7f33bb94800a03f1f4df13a4f38';
-const DEFAULT_CLIENT_SECRET = process.env.EIGHT_SLEEP_CLIENT_SECRET || 'f0954a3ed5763ba4e44ec7191b7a2e7b';
+const DEFAULT_CLIENT_SECRET =
+  process.env.EIGHT_SLEEP_CLIENT_SECRET || 'f0954a3ed5763ba4e44ec7191b7a2e7b';
 
 const USER_AGENT = 'Eight Sleep (com.eightsleep.app) / 7.39.17 platform/iOS';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type VibrationPattern = 'RISE' | 'intense'; // RISE = gentle, intense = strong
+export type VibrationPower = 20 | 50 | 100; // low / medium / high
+
+export interface AlarmVibration {
+  enabled: boolean;
+  powerLevel: VibrationPower;
+  pattern: VibrationPattern;
+}
+
+export interface AlarmThermal {
+  enabled: boolean;
+  /** Temperature offset -100 to 100. Negative = cool, positive = warm. 0 = no change. */
+  level: number;
+}
+
+export interface AlarmSmart {
+  /** Wake during detected light sleep stage (up to 30 min early). */
+  lightSleepEnabled: boolean;
+  /** Limit how early smart wake can trigger. */
+  sleepCapEnabled: boolean;
+  sleepCapMinutes?: number;
+}
+
+export interface AlarmRepeat {
+  enabled: boolean;
+  weekDays: {
+    monday: boolean;
+    tuesday: boolean;
+    wednesday: boolean;
+    thursday: boolean;
+    friday: boolean;
+    saturday: boolean;
+    sunday: boolean;
+  };
+}
+
 export interface Alarm {
   id: string;
-  time: string; // HH:MM format (24h)
   enabled: boolean;
-  vibration?: string; // 'rise' | 'double'
-  thermalWake?: boolean;
-  days?: string[]; // ['MON','TUE','WED','THU','FRI','SAT','SUN']
+  time: string; // "HH:MM:SS"
+  nextTimestamp?: number; // unix ms
+  repeat: AlarmRepeat;
+  vibration: AlarmVibration;
+  thermal: AlarmThermal;
+  smart: AlarmSmart;
 }
+
+export interface CreateAlarmOptions {
+  time: string; // "HH:MM:SS"
+  days?: Partial<AlarmRepeat['weekDays']>; // omitted = one-off (repeat disabled)
+  vibration?: {
+    pattern?: VibrationPattern;
+    powerLevel?: VibrationPower;
+  };
+  thermal?: {
+    enabled?: boolean;
+    level?: number;
+  };
+  smartWake?: boolean;
+}
+
+// ─── Token cache ──────────────────────────────────────────────────────────────
 
 interface TokenCache {
   accessToken: string;
-  refreshToken: string;
   expiresAt: number;
   userId: string;
 }
 
-// Module-level cache — persists across warm serverless invocations
-let _tokenCache: TokenCache | null = null;
+let _cache: TokenCache | null = null;
 
 async function getToken(): Promise<TokenCache> {
-  // Return cached token if still valid (with 60s buffer)
-  if (_tokenCache && _tokenCache.expiresAt > Date.now() + 60_000) {
-    return _tokenCache;
-  }
+  if (_cache && _cache.expiresAt > Date.now() + 60_000) return _cache;
 
-  // Try refresh token first to avoid rate-limiting from repeated logins
-  if (_tokenCache?.refreshToken) {
-    try {
-      const res = await fetch(`${AUTH_URL}/v1/auth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
-        body: JSON.stringify({
-          grant_type: 'refresh_token',
-          refresh_token: _tokenCache.refreshToken,
-          client_id: DEFAULT_CLIENT_ID,
-          client_secret: DEFAULT_CLIENT_SECRET,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        _tokenCache = {
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token || _tokenCache.refreshToken,
-          expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-          userId: _tokenCache.userId,
-        };
-        return _tokenCache;
-      }
-    } catch {
-      // Fall through to full login
-    }
-  }
-
-  // Full login
   const email = process.env.EIGHT_SLEEP_EMAIL;
   const password = process.env.EIGHT_SLEEP_PASSWORD;
   if (!email || !password) {
     throw new Error('EIGHT_SLEEP_EMAIL and EIGHT_SLEEP_PASSWORD env vars are required');
   }
 
-  const res = await fetch(`${AUTH_URL}/v1/auth/login`, {
+  const res = await fetch(`${AUTH_URL}/v1/tokens`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
     body: JSON.stringify({
-      email,
+      grant_type: 'password',
+      username: email,
       password,
       client_id: DEFAULT_CLIENT_ID,
       client_secret: DEFAULT_CLIENT_SECRET,
@@ -89,20 +114,25 @@ async function getToken(): Promise<TokenCache> {
   }
 
   const data = await res.json();
-  _tokenCache = {
+  _cache = {
     accessToken: data.access_token,
-    refreshToken: data.refresh_token,
     expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    userId: data.userId ?? data.user?.id,
+    userId: data.user_id ?? data.userId,
   };
-  return _tokenCache;
+  return _cache;
 }
 
-async function api(path: string, options: RequestInit = {}) {
+// ─── HTTP helpers ─────────────────────────────────────────────────────────────
+
+async function api(
+  path: string,
+  options: RequestInit = {},
+  baseUrl = APP_API_URL,
+): Promise<unknown> {
   const { accessToken, userId } = await getToken();
   const url = path.replace('{userId}', userId);
 
-  const res = await fetch(`${CLIENT_URL}${url}`, {
+  let res = await fetch(`${baseUrl}${url}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -112,101 +142,159 @@ async function api(path: string, options: RequestInit = {}) {
     },
   });
 
+  // Retry with fallback host on 5xx or network error
+  if (!res.ok && res.status >= 500 && baseUrl === APP_API_URL) {
+    res = await fetch(`${CLIENT_API_URL}${url}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': USER_AGENT,
+        ...(options.headers ?? {}),
+      },
+    });
+  }
+
   if (res.status === 204) return null;
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Eight Sleep API error ${res.status} on ${url}: ${body}`);
+    throw new Error(`Eight Sleep API ${res.status} on ${url}: ${body}`);
   }
 
   return res.json();
 }
 
+// ─── Alarm CRUD ───────────────────────────────────────────────────────────────
+
 export async function getAlarms(): Promise<Alarm[]> {
-  const data = await api('/v1/users/{userId}/alarms');
-  return data?.alarms ?? data ?? [];
+  const data = (await api('/v1/users/{userId}/alarms')) as { alarms?: Alarm[] } | Alarm[];
+  return (Array.isArray(data) ? data : data?.alarms) ?? [];
 }
 
-export async function createAlarm(
-  time: string, // "HH:MM" 24-hour
-  days?: string[], // e.g. ['MON','WED','FRI']
-): Promise<Alarm> {
-  const body: Record<string, unknown> = {
-    time,
-    enabled: true,
-    vibration: 'rise',
-    thermalWake: true,
+export async function createAlarm(opts: CreateAlarmOptions): Promise<Alarm> {
+  const allDays = {
+    monday: false,
+    tuesday: false,
+    wednesday: false,
+    thursday: false,
+    friday: false,
+    saturday: false,
+    sunday: false,
   };
-  if (days && days.length > 0) body.days = days;
 
-  return api('/v1/users/{userId}/alarms', {
+  const hasDays = opts.days && Object.values(opts.days).some(Boolean);
+
+  const body = {
+    time: opts.time,
+    enabled: true,
+    repeat: {
+      enabled: hasDays ?? false,
+      weekDays: hasDays ? { ...allDays, ...opts.days } : allDays,
+    },
+    vibration: {
+      enabled: true,
+      pattern: opts.vibration?.pattern ?? 'RISE',
+      powerLevel: opts.vibration?.powerLevel ?? 50,
+    },
+    thermal: {
+      enabled: opts.thermal?.enabled ?? true,
+      level: opts.thermal?.level ?? 0,
+    },
+    smart: {
+      lightSleepEnabled: opts.smartWake ?? true,
+      sleepCapEnabled: false,
+    },
+  };
+
+  return (await api('/v1/users/{userId}/alarms', {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  })) as Alarm;
 }
 
+export async function updateAlarm(alarmId: string, patch: Partial<Alarm>): Promise<Alarm> {
+  return (await api(`/v1/users/{userId}/alarms/${alarmId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })) as Alarm;
+}
+
+export async function deleteAlarm(alarmId: string): Promise<void> {
+  // Eight Sleep deletes by disabling, or via DELETE endpoint
+  try {
+    await api(`/v1/users/{userId}/alarms/${alarmId}`, { method: 'DELETE' });
+  } catch {
+    // Fallback: disable it
+    await updateAlarm(alarmId, { enabled: false });
+  }
+}
+
+// ─── Active alarm actions (via routines endpoint) ─────────────────────────────
+
 export async function snoozeAlarm(alarmId: string, minutes = 9): Promise<void> {
-  await api(`/v1/users/{userId}/alarms/${alarmId}/snooze`, {
-    method: 'POST',
-    body: JSON.stringify({ minutes }),
+  await api('/v1/users/{userId}/routines', {
+    method: 'PUT',
+    body: JSON.stringify({ alarm: { alarmId, snoozeForMinutes: minutes } }),
   });
 }
 
 export async function dismissAlarm(alarmId: string): Promise<void> {
-  await api(`/v1/users/{userId}/alarms/${alarmId}/dismiss`, {
-    method: 'POST',
+  await api('/v1/users/{userId}/routines', {
+    method: 'PUT',
+    body: JSON.stringify({ alarm: { alarmId, dismissed: true } }),
   });
 }
 
-export async function deleteAlarm(alarmId: string): Promise<void> {
-  await api(`/v1/users/{userId}/alarms/${alarmId}`, {
-    method: 'DELETE',
-  });
+export async function dismissAllAlarms(): Promise<void> {
+  const { userId } = await getToken();
+  await api(`/v1/users/${userId}/alarms/active/dismiss-all`, { method: 'POST' });
 }
 
-// Returns the alarm closest to current time that's within 30 minutes (likely ringing)
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Alarm close to current time (within ±30 min) — likely ringing. */
 export function findActiveAlarm(alarms: Alarm[]): Alarm | null {
   const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
 
   return (
     alarms
       .filter((a) => a.enabled)
       .find((a) => {
         const [h, m] = a.time.split(':').map(Number);
-        const alarmMinutes = h * 60 + m;
-        const diff = Math.abs(alarmMinutes - nowMinutes);
-        return diff <= 30;
+        return Math.abs(h * 60 + m - nowMin) <= 30;
       }) ?? null
   );
 }
 
-// Returns the next upcoming alarm from now
+/** Next upcoming alarm from now. */
 export function findNextAlarm(alarms: Alarm[]): Alarm | null {
   const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-
+  const nowMin = now.getHours() * 60 + now.getMinutes();
   const enabled = alarms.filter((a) => a.enabled);
-  if (enabled.length === 0) return null;
+  if (!enabled.length) return null;
 
-  enabled.sort((a, b) => {
-    const [ah, am] = a.time.split(':').map(Number);
-    const [bh, bm] = b.time.split(':').map(Number);
-    const aMins = ah * 60 + am;
-    const bMins = bh * 60 + bm;
-    // Future alarms first; wrap around midnight
-    const aFuture = aMins >= nowMinutes ? aMins : aMins + 1440;
-    const bFuture = bMins >= nowMinutes ? bMins : bMins + 1440;
-    return aFuture - bFuture;
-  });
-
-  return enabled[0];
+  return enabled.sort((a, b) => {
+    const toFuture = (t: string) => {
+      const [h, m] = t.split(':').map(Number);
+      const mins = h * 60 + m;
+      return mins >= nowMin ? mins : mins + 1440;
+    };
+    return toFuture(a.time) - toFuture(b.time);
+  })[0];
 }
 
-// Format "07:30" -> "7:30 AM", "14:00" -> "2 PM"
+/** "07:30:00" → "7:30 AM" */
 export function formatTime(time: string): string {
   const [h, m] = time.split(':').map(Number);
   const period = h < 12 ? 'AM' : 'PM';
   const hour = h % 12 || 12;
   return m === 0 ? `${hour} ${period}` : `${hour}:${m.toString().padStart(2, '0')} ${period}`;
+}
+
+/** "HH:MM" or "HH:MM:SS" → canonical "HH:MM:SS" */
+export function toApiTime(t: string): string {
+  const parts = t.split(':');
+  return `${parts[0].padStart(2, '0')}:${(parts[1] ?? '00').padStart(2, '0')}:${(parts[2] ?? '00').padStart(2, '0')}`;
 }

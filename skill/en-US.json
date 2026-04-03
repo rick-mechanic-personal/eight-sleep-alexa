@@ -1,7 +1,7 @@
 {
   "interactionModel": {
     "languageModel": {
-      "invocationName": "eight sleep",
+      "invocationName": "sleep alarms",
       "intents": [
         {
           "name": "AMAZON.CancelIntent",
@@ -29,6 +29,10 @@
             {
               "name": "day",
               "type": "AMAZON.DayOfWeek"
+            },
+            {
+              "name": "vibration",
+              "type": "VibrationPatternType"
             }
           ],
           "samples": [
@@ -40,11 +44,15 @@
             "set alarm at {time}",
             "create an alarm for {time}",
             "add an alarm for {time}",
+            "set a {vibration} alarm for {time}",
+            "set a {vibration} alarm at {time}",
+            "wake me up at {time} with {vibration} vibration",
             "set an alarm for {time} on {day}",
             "set my alarm for {time} on {day}",
             "wake me up at {time} on {day}",
             "wake me up {day} at {time}",
-            "set a {day} alarm for {time}"
+            "set a {day} alarm for {time}",
+            "set a {vibration} alarm for {time} on {day}"
           ]
         },
         {
@@ -65,7 +73,8 @@
             "snooze the alarm for {duration}",
             "hit snooze",
             "five more minutes",
-            "ten more minutes"
+            "ten more minutes",
+            "nine more minutes"
           ]
         },
         {
@@ -81,7 +90,8 @@
             "wake up",
             "I'm awake",
             "good morning",
-            "turn it off"
+            "turn it off",
+            "I'm up"
           ]
         },
         {
@@ -121,9 +131,83 @@
             "what time is my next alarm",
             "do I have any alarms"
           ]
+        },
+        {
+          "name": "SetVibrationIntent",
+          "slots": [
+            {
+              "name": "vibration",
+              "type": "VibrationPatternType"
+            }
+          ],
+          "samples": [
+            "set vibration to {vibration}",
+            "change vibration to {vibration}",
+            "make the vibration {vibration}",
+            "use {vibration} vibration",
+            "set {vibration} vibration on my alarm",
+            "turn on {vibration} vibration"
+          ]
+        },
+        {
+          "name": "SetThermalAlarmIntent",
+          "slots": [
+            {
+              "name": "thermal",
+              "type": "AMAZON.OnOff"
+            }
+          ],
+          "samples": [
+            "turn {thermal} thermal wake",
+            "turn thermal wake {thermal}",
+            "set thermal alarm {thermal}",
+            "enable thermal wake",
+            "disable thermal wake",
+            "turn on thermal wake",
+            "turn off thermal wake",
+            "turn on the heating alarm",
+            "turn off the heating alarm"
+          ]
+        },
+        {
+          "name": "SetSmartWakeIntent",
+          "slots": [
+            {
+              "name": "smart",
+              "type": "AMAZON.OnOff"
+            }
+          ],
+          "samples": [
+            "turn {smart} smart wake",
+            "turn smart wake {smart}",
+            "enable smart wake",
+            "disable smart wake",
+            "turn on smart wake",
+            "turn off smart wake",
+            "use smart alarm",
+            "use regular alarm"
+          ]
         }
       ],
-      "types": []
+      "types": [
+        {
+          "name": "VibrationPatternType",
+          "values": [
+            {
+              "name": {
+                "value": "gentle",
+                "synonyms": ["gentle rise", "soft", "rise", "slow", "easy", "light"]
+              }
+            },
+            {
+              "name": {
+                "value": "strong",
+                "synonyms": ["intense", "strong vibration", "double rise", "hard", "powerful", "aggressive"]
+              }
+            }
+          ]
+        }
+      ]
     }
   }
 }
