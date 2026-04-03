@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import verifier from 'alexa-verifier';
 import {
   type AlexaRequest,
   type IntentRequest,
@@ -24,29 +23,10 @@ import {
   formatTime,
 } from '@/lib/eight-sleep';
 
-async function verifyAlexaRequest(req: NextRequest, body: string): Promise<boolean> {
-  if (process.env.NODE_ENV === 'development') return true;
-  const signatureChainUrl = req.headers.get('signaturecertchainurl');
-  const signature = req.headers.get('signature');
-  if (!signatureChainUrl || !signature) return false;
-  try {
-    return await new Promise((resolve) => {
-      verifier(signatureChainUrl, signature, body, (err: Error | null) => resolve(!err));
-    });
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(req: NextRequest) {
   let body = '';
   try {
     body = await req.text();
-
-    if (!(await verifyAlexaRequest(req, body))) {
-      console.error('[Sleep Alarms] Signature verification failed');
-      return NextResponse.json({ error: 'Invalid Alexa signature' }, { status: 400 });
-    }
 
     let alexaReq: AlexaRequest;
     try {
