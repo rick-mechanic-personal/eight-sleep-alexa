@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import verifier from 'alexa-verifier';
 import {
   type AlexaRequest,
   type IntentRequest,
@@ -28,25 +29,40 @@ async function verifyAlexaRequest(req: NextRequest, body: string): Promise<boole
   const signatureChainUrl = req.headers.get('signaturecertchainurl');
   const signature = req.headers.get('signature');
   if (!signatureChainUrl || !signature) return false;
-  const { default: verifier } = await import('alexa-verifier');
-  return new Promise((resolve) => {
-    verifier(signatureChainUrl, signature, body, (err: Error | null) => resolve(!err));
-  });
+  try {
+    return await new Promise((resolve) => {
+      verifier(signatureChainUrl, signature, body, (err: Error | null) => resolve(!err));
+    });
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.text();
-
-  if (!(await verifyAlexaRequest(req, body))) {
-    return NextResponse.json({ error: 'Invalid Alexa signature' }, { status: 400 });
-  }
-
-  let alexaReq: AlexaRequest;
+  let body = '';
   try {
-    alexaReq = JSON.parse(body);
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    body = await req.text();
+
+    if (!(await verifyAlexaRequest(req, body))) {
+      console.error('[Sleep Alarms] Signature verification failed');
+      return NextResponse.json({ error: 'Invalid Alexa signature' }, { status: 400 });
+    }
+
+    let alexaReq: AlexaRequest;
+    try {
+      alexaReq = JSON.parse(body);
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    return await handleAlexaRequest(alexaReq);
+  } catch (err) {
+    console.error('[Sleep Alarms] Unhandled top-level error:', err);
+    return NextResponse.json(speak('An unexpected error occurred. Please try again.'));
   }
+}
+
+async function handleAlexaRequest(alexaReq: AlexaRequest) {
 
   // Restrict to your skill (optional but recommended)
   const allowedSkillId = process.env.ALEXA_SKILL_ID;
