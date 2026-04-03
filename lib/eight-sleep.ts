@@ -126,31 +126,26 @@ async function api(
   const { accessToken, userId, tokenType } = await getToken();
   const url = path.replace('{userId}', userId);
 
-  const authHeader =
-    tokenType === 'session'
-      ? { 'Session-Token': accessToken }
-      : { Authorization: `Bearer ${accessToken}` };
+  const baseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': USER_AGENT,
+  };
+  if (tokenType === 'session') {
+    baseHeaders['Session-Token'] = accessToken;
+  } else {
+    baseHeaders['Authorization'] = `Bearer ${accessToken}`;
+  }
 
   let res = await fetch(`${baseUrl}${url}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': USER_AGENT,
-      ...authHeader,
-      ...(options.headers ?? {}),
-    },
+    headers: { ...baseHeaders, ...(options.headers as Record<string, string> ?? {}) },
   });
 
   // Retry with app-api host on 4xx/5xx
   if (!res.ok && baseUrl === CLIENT_API_URL) {
     res = await fetch(`${APP_API_URL}${url}`, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': USER_AGENT,
-        ...authHeader,
-        ...(options.headers ?? {}),
-      },
+      headers: { ...baseHeaders, ...(options.headers as Record<string, string> ?? {}) },
     });
   }
 
