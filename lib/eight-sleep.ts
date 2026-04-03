@@ -76,6 +76,7 @@ interface TokenCache {
   accessToken: string;
   expiresAt: number;
   userId: string;
+  tokenType: 'session' | 'bearer'; // legacy = session token header, OAuth2 = bearer
 }
 
 let _cache: TokenCache | null = null;
@@ -110,6 +111,7 @@ async function getToken(): Promise<TokenCache> {
       ? new Date(session.expirationDate).getTime()
       : Date.now() + 3600 * 1000,
     userId: session.userId ?? session.user_id,
+    tokenType: 'session',
   };
   return _cache;
 }
@@ -121,15 +123,20 @@ async function api(
   options: RequestInit = {},
   baseUrl = CLIENT_API_URL,
 ): Promise<unknown> {
-  const { accessToken, userId } = await getToken();
+  const { accessToken, userId, tokenType } = await getToken();
   const url = path.replace('{userId}', userId);
+
+  const authHeader =
+    tokenType === 'session'
+      ? { 'Session-Token': accessToken }
+      : { Authorization: `Bearer ${accessToken}` };
 
   let res = await fetch(`${baseUrl}${url}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
       'User-Agent': USER_AGENT,
+      ...authHeader,
       ...(options.headers ?? {}),
     },
   });
@@ -140,8 +147,8 @@ async function api(
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
         'User-Agent': USER_AGENT,
+        ...authHeader,
         ...(options.headers ?? {}),
       },
     });
