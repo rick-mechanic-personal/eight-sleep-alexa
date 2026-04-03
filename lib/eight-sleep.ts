@@ -119,7 +119,7 @@ async function getToken(): Promise<TokenCache> {
 async function api(
   path: string,
   options: RequestInit = {},
-  baseUrl = APP_API_URL,
+  baseUrl = CLIENT_API_URL,
 ): Promise<unknown> {
   const { accessToken, userId } = await getToken();
   const url = path.replace('{userId}', userId);
@@ -134,9 +134,9 @@ async function api(
     },
   });
 
-  // Retry with fallback host on 5xx or network error
-  if (!res.ok && res.status >= 500 && baseUrl === APP_API_URL) {
-    res = await fetch(`${CLIENT_API_URL}${url}`, {
+  // Retry with app-api host on 4xx/5xx
+  if (!res.ok && baseUrl === CLIENT_API_URL) {
+    res = await fetch(`${APP_API_URL}${url}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
