@@ -1,0 +1,129 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "eight sleep",
+      "intents": [
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "SetAlarmIntent",
+          "slots": [
+            {
+              "name": "time",
+              "type": "AMAZON.TIME"
+            },
+            {
+              "name": "day",
+              "type": "AMAZON.DayOfWeek"
+            }
+          ],
+          "samples": [
+            "set an alarm for {time}",
+            "set my alarm for {time}",
+            "wake me up at {time}",
+            "wake me at {time}",
+            "set alarm for {time}",
+            "set alarm at {time}",
+            "create an alarm for {time}",
+            "add an alarm for {time}",
+            "set an alarm for {time} on {day}",
+            "set my alarm for {time} on {day}",
+            "wake me up at {time} on {day}",
+            "wake me up {day} at {time}",
+            "set a {day} alarm for {time}"
+          ]
+        },
+        {
+          "name": "SnoozeAlarmIntent",
+          "slots": [
+            {
+              "name": "duration",
+              "type": "AMAZON.DURATION"
+            }
+          ],
+          "samples": [
+            "snooze",
+            "snooze alarm",
+            "snooze my alarm",
+            "snooze for {duration}",
+            "snooze for {duration} more",
+            "give me {duration} more",
+            "snooze the alarm for {duration}",
+            "hit snooze",
+            "five more minutes",
+            "ten more minutes"
+          ]
+        },
+        {
+          "name": "DismissAlarmIntent",
+          "slots": [],
+          "samples": [
+            "dismiss",
+            "dismiss alarm",
+            "dismiss my alarm",
+            "turn off the alarm",
+            "stop the alarm",
+            "stop alarm",
+            "wake up",
+            "I'm awake",
+            "good morning",
+            "turn it off"
+          ]
+        },
+        {
+          "name": "CancelAlarmIntent",
+          "slots": [
+            {
+              "name": "time",
+              "type": "AMAZON.TIME"
+            }
+          ],
+          "samples": [
+            "cancel my alarm",
+            "cancel alarm",
+            "delete my alarm",
+            "delete alarm",
+            "remove my alarm",
+            "turn off my alarm",
+            "disable my alarm",
+            "cancel my alarm for {time}",
+            "delete the {time} alarm",
+            "remove the {time} alarm",
+            "cancel the alarm for {time}"
+          ]
+        },
+        {
+          "name": "ListAlarmsIntent",
+          "slots": [],
+          "samples": [
+            "list my alarms",
+            "list alarms",
+            "what alarms do I have",
+            "what are my alarms",
+            "show my alarms",
+            "tell me my alarms",
+            "when is my alarm",
+            "what time is my alarm",
+            "what time is my next alarm",
+            "do I have any alarms"
+          ]
+        }
+      ],
+      "types": []
+    }
+  }
+}
