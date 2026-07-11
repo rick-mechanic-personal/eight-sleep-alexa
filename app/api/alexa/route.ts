@@ -11,15 +11,18 @@ import {
   parseVibrationPattern,
 } from '@/lib/alexa';
 import {
+  type Alarm,
+  EightSleepApiError,
   getAlarms,
+  getUserTimeZone,
   createAlarm,
   snoozeAlarm,
   dismissAlarm,
-  dismissAllAlarms,
   deleteAlarm,
   updateAlarm,
   findActiveAlarm,
   findNextAlarm,
+  localNowMinutes,
   formatTime,
 } from '@/lib/eight-sleep';
 
@@ -42,8 +45,16 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleAlexaRequest(alexaReq: AlexaRequest) {
+async function alarmsWithNow(): Promise<{ alarms: Alarm[]; nowMinutes: number }> {
+  const [alarms, timeZone] = await Promise.all([getAlarms(), getUserTimeZone()]);
+  return { alarms, nowMinutes: localNowMinutes(timeZone) };
+}
 
+function isConflict(err: unknown): boolean {
+  return err instanceof EightSleepApiError && err.status === 409;
+}
+
+async function handleAlexaRequest(alexaReq: AlexaRequest) {
   // Restrict to your skill (optional but recommended)
   const allowedSkillId = process.env.ALEXA_SKILL_ID;
   if (allowedSkillId) {
@@ -107,7 +118,7 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const list = sorted
         .map((a) => {
           const parts: string[] = [formatTime(a.time)];
-          if (a.vibration.pattern === 'intense') parts.push('strong vibration');
+          if (a.vibration.pattern === 'INTENSE') parts.push('strong vibration');
           if (a.thermal.enabled && a.thermal.level !== 0)
             parts.push(a.thermal.level > 0 ? 'warming' : 'cooling');
           if (a.smart.lightSleepEnabled) parts.push('smart wake');
@@ -137,58 +148,69 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const time = parseAlexaTime(timeValue);
       if (!time) return json(speak("Sorry, I couldn't understand that time. Please try again."));
 
-      const days = dayValue ? { [parseDay(dayValue) ?? dayValue.toLowerCase()]: true } : undefined;
+      const day = dayValue ? parseDay(dayValue) : null;
+      const days = day ? { [day]: true } : undefined;
       const vibrationPattern = vibrationValue ? parseVibrationPattern(vibrationValue) : 'RISE';
 
       await createAlarm({ time, days, vibration: { pattern: vibrationPattern } });
 
       const friendlyTime = formatTime(time);
-      const vibDesc = vibrationPattern === 'intense' ? 'strong vibration' : 'gentle rise';
-      const dayMsg = dayValue ? ` on ${dayValue}` : '';
+      const vibDesc = vibrationPattern === 'INTENSE' ? 'strong vibration' : 'gentle rise';
+      const dayMsg = day ? ` every ${day}` : '';
       return json(speak(`Done! Alarm set for ${friendlyTime}${dayMsg} with ${vibDesc}.`));
     }
 
-    // ── Snooze ─────────────────────────────────────────────────────────────────
+    // ── Snooze (only works while an alarm is ringing or snoozed) ───────────────
     if (intentName === 'SnoozeAlarmIntent') {
       const durationValue = getSlot(alexaReq, 'duration');
       const minutes = durationValue ? parseDuration(durationValue) : 9;
 
-      const alarms = await getAlarms();
-      const target = findActiveAlarm(alarms) ?? findNextAlarm(alarms);
-      if (!target) return json(speak("I couldn't find an alarm to snooze."));
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const target = findActiveAlarm(alarms, nowMinutes);
+      if (!target) {
+        return json(speak("There doesn't seem to be an alarm ringing to snooze."));
+      }
 
-      await snoozeAlarm(target.id, minutes);
+      try {
+        await snoozeAlarm(target.id, minutes);
+      } catch (err) {
+        if (isConflict(err)) {
+          return json(speak("There doesn't seem to be an alarm ringing to snooze."));
+        }
+        throw err;
+      }
       const word = minutes === 1 ? 'minute' : 'minutes';
       return json(speak(`Snoozed for ${minutes} ${word}. Sweet dreams.`));
     }
 
     // ── Dismiss (stop currently ringing alarm) ─────────────────────────────────
     if (intentName === 'DismissAlarmIntent') {
-      const alarms = await getAlarms();
-      const active = findActiveAlarm(alarms);
-
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const active = findActiveAlarm(alarms, nowMinutes);
       if (!active) {
-        // Try dismiss-all as a fallback — catches alarms the app considers active
-        try {
-          await dismissAllAlarms();
-          return json(speak('Alarm dismissed. Good morning!'));
-        } catch {
-          return json(speak("There doesn't seem to be an alarm ringing right now."));
-        }
+        return json(speak("There doesn't seem to be an alarm ringing right now."));
       }
 
-      await dismissAlarm(active.id);
+      try {
+        await dismissAlarm(active.id);
+      } catch (err) {
+        if (isConflict(err)) {
+          return json(speak("There doesn't seem to be an alarm ringing right now."));
+        }
+        throw err;
+      }
       return json(speak('Alarm dismissed. Good morning!'));
     }
 
     // ── Cancel / delete alarm ──────────────────────────────────────────────────
     if (intentName === 'CancelAlarmIntent') {
       const timeValue = getSlot(alexaReq, 'time');
-      const alarms = await getAlarms();
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const enabled = alarms.filter((a) => a.enabled);
 
       if (timeValue) {
         const time = parseAlexaTime(timeValue);
-        const target = alarms.find((a) => a.time === time || a.time.startsWith(time ?? ''));
+        const target = enabled.find((a) => a.time === time);
         if (!target)
           return json(
             speak(`I couldn't find an alarm for ${formatTime(time ?? timeValue)}.`),
@@ -197,7 +219,7 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         return json(speak(`Alarm for ${formatTime(target.time)} has been cancelled.`));
       }
 
-      const next = findNextAlarm(alarms);
+      const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak('You have no alarms to cancel.'));
       await deleteAlarm(next.id);
       return json(speak(`Your ${formatTime(next.time)} alarm has been cancelled.`));
@@ -208,25 +230,22 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const vibrationValue = getSlot(alexaReq, 'vibration');
       if (!vibrationValue) return json(ask('Should I set gentle or strong vibration?', 'Gentle or strong?'));
 
-      const alarms = await getAlarms();
-      const next = findNextAlarm(alarms);
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
       const pattern = parseVibrationPattern(vibrationValue);
-      await updateAlarm(next.id, {
-        ...next,
-        vibration: { ...next.vibration, pattern },
-      });
+      await updateAlarm(next, { vibration: { ...next.vibration, pattern } });
 
-      const desc = pattern === 'intense' ? 'strong' : 'gentle rise';
+      const desc = pattern === 'INTENSE' ? 'strong' : 'gentle rise';
       return json(speak(`Updated your ${formatTime(next.time)} alarm to ${desc} vibration.`));
     }
 
     // ── Toggle thermal on next alarm ───────────────────────────────────────────
     if (intentName === 'SetThermalAlarmIntent') {
       const thermalValue = getSlot(alexaReq, 'thermal');
-      const alarms = await getAlarms();
-      const next = findNextAlarm(alarms);
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
       let thermalEnabled = true;
@@ -234,10 +253,7 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         thermalEnabled = false;
       }
 
-      await updateAlarm(next.id, {
-        ...next,
-        thermal: { ...next.thermal, enabled: thermalEnabled },
-      });
+      await updateAlarm(next, { thermal: { ...next.thermal, enabled: thermalEnabled } });
 
       return json(
         speak(
@@ -251,18 +267,15 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
     // ── Toggle smart wake on next alarm ────────────────────────────────────────
     if (intentName === 'SetSmartWakeIntent') {
       const smartValue = getSlot(alexaReq, 'smart');
-      const alarms = await getAlarms();
-      const next = findNextAlarm(alarms);
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
       const enabled =
         !smartValue ||
         !(smartValue.toLowerCase().includes('off') || smartValue.toLowerCase().includes('no'));
 
-      await updateAlarm(next.id, {
-        ...next,
-        smart: { ...next.smart, lightSleepEnabled: enabled },
-      });
+      await updateAlarm(next, { smart: { ...next.smart, lightSleepEnabled: enabled } });
 
       return json(
         speak(

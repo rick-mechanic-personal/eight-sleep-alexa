@@ -114,9 +114,9 @@ export function parseDay(value: string): keyof import('./eight-sleep').AlarmRepe
   return DAY_MAP[value.toLowerCase()] ?? null;
 }
 
-/** "gentle" / "rise" → RISE,  "strong" / "intense" / "double" → intense */
-export function parseVibrationPattern(value: string): 'RISE' | 'intense' {
+/** "gentle" / "rise" → RISE,  "strong" / "intense" / "double" → INTENSE */
+export function parseVibrationPattern(value: string): 'RISE' | 'INTENSE' {
   const v = value.toLowerCase();
-  if (v.includes('strong') || v.includes('intense') || v.includes('double')) return 'intense';
+  if (v.includes('strong') || v.includes('intense') || v.includes('double')) return 'INTENSE';
   return 'RISE';
 }
