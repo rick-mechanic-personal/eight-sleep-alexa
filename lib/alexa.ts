@@ -114,9 +114,52 @@ export function parseDay(value: string): keyof import('./eight-sleep').AlarmRepe
   return DAY_MAP[value.toLowerCase()] ?? null;
 }
 
-/** "gentle" / "rise" → RISE,  "strong" / "intense" / "double" → INTENSE */
+/** "gradual" / "gentle" / "rise" → RISE,  "heavy" / "strong" / "intense" → INTENSE */
 export function parseVibrationPattern(value: string): 'RISE' | 'INTENSE' {
   const v = value.toLowerCase();
-  if (v.includes('strong') || v.includes('intense') || v.includes('double')) return 'INTENSE';
+  if (
+    v.includes('heavy') ||
+    v.includes('strong') ||
+    v.includes('intense') ||
+    v.includes('hard') ||
+    v.includes('double')
+  ) {
+    return 'INTENSE';
+  }
   return 'RISE';
+}
+
+/** Vibration strength "low" / "medium" / "high" → Eight Sleep powerLevel 20 / 50 / 100 */
+export function parseStrength(value: string): 20 | 50 | 100 {
+  const v = value.toLowerCase();
+  if (v.includes('low') || v.includes('weak') || v.includes('min')) return 20;
+  if (v.includes('high') || v.includes('max') || v.includes('full')) return 100;
+  return 50;
+}
+
+/**
+ * Spoken temperature → Eight Sleep thermal level.
+ * The app's -10…+10 temperature scale maps to the API's -100…+100.
+ * Direction words ("cooling", "minus", …) set the sign; no direction = warming.
+ */
+export function parseTempLevel(
+  direction: string | undefined,
+  level: string,
+): number | null {
+  const n = Number(level);
+  if (!Number.isFinite(n)) return null;
+  const d = direction?.toLowerCase() ?? '';
+  const sign = d.includes('cool') || d.includes('cold') || d.includes('chill') ||
+    d.includes('minus') || d.includes('negative')
+    ? -1
+    : 1;
+  const clamped = Math.max(0, Math.min(10, Math.round(Math.abs(n))));
+  return sign * clamped * 10;
+}
+
+/** API thermal level → speech, e.g. -30 → "cooling level 3" */
+export function formatTempLevel(level: number): string {
+  if (level === 0) return 'temperature level zero';
+  const dir = level > 0 ? 'warming' : 'cooling';
+  return `${dir} level ${Math.abs(level) / 10}`;
 }

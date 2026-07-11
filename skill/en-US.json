@@ -33,6 +33,18 @@
             {
               "name": "vibration",
               "type": "VibrationPatternType"
+            },
+            {
+              "name": "strength",
+              "type": "VibrationStrengthType"
+            },
+            {
+              "name": "tempDirection",
+              "type": "TempDirectionType"
+            },
+            {
+              "name": "tempLevel",
+              "type": "AMAZON.NUMBER"
             }
           ],
           "samples": [
@@ -52,7 +64,19 @@
             "wake me up at {time} on {day}",
             "wake me up {day} at {time}",
             "set a {day} alarm for {time}",
-            "set a {vibration} alarm for {time} on {day}"
+            "set a {vibration} alarm for {time} on {day}",
+            "set an alarm for {time} with {strength} strength",
+            "set an alarm for {time} with {strength} vibration strength",
+            "set a {vibration} alarm for {time} with {strength} strength",
+            "set an alarm for {time} with {vibration} vibration at {strength} strength",
+            "wake me up at {time} with {strength} strength",
+            "set an alarm for {time} {tempDirection} level {tempLevel}",
+            "set an alarm for {time} with temperature {tempDirection} {tempLevel}",
+            "set an alarm for {time} at {tempDirection} {tempLevel}",
+            "set an alarm for {time} with {tempDirection} level {tempLevel}",
+            "wake me up at {time} {tempDirection} level {tempLevel}",
+            "set an alarm for {time} with {strength} strength {tempDirection} level {tempLevel}",
+            "set a {vibration} alarm for {time} with {strength} strength and {tempDirection} level {tempLevel}"
           ]
         },
         {
@@ -150,6 +174,47 @@
           ]
         },
         {
+          "name": "SetStrengthIntent",
+          "slots": [
+            {
+              "name": "strength",
+              "type": "VibrationStrengthType"
+            }
+          ],
+          "samples": [
+            "set vibration strength to {strength}",
+            "set strength to {strength}",
+            "change vibration strength to {strength}",
+            "set the vibration strength to {strength}",
+            "make the vibration strength {strength}",
+            "use {strength} strength",
+            "set {strength} strength on my alarm"
+          ]
+        },
+        {
+          "name": "SetTemperatureAlarmIntent",
+          "slots": [
+            {
+              "name": "tempDirection",
+              "type": "TempDirectionType"
+            },
+            {
+              "name": "tempLevel",
+              "type": "AMAZON.NUMBER"
+            }
+          ],
+          "samples": [
+            "set alarm temperature to {tempDirection} {tempLevel}",
+            "set the alarm temperature to {tempDirection} level {tempLevel}",
+            "set wake temperature to {tempDirection} {tempLevel}",
+            "set temperature to {tempDirection} {tempLevel}",
+            "make my alarm {tempDirection} level {tempLevel}",
+            "set alarm temperature to level {tempLevel}",
+            "set alarm temperature to {tempLevel}",
+            "change the alarm temperature to {tempDirection} {tempLevel}"
+          ]
+        },
+        {
           "name": "SetThermalAlarmIntent",
           "slots": [
             {
@@ -195,14 +260,54 @@
           "values": [
             {
               "name": {
-                "value": "gentle",
-                "synonyms": ["gentle rise", "soft", "rise", "slow", "easy", "light"]
+                "value": "gradual",
+                "synonyms": ["gentle", "gentle rise", "soft", "rise", "slow", "easy", "light"]
               }
             },
             {
               "name": {
-                "value": "strong",
-                "synonyms": ["intense", "strong vibration", "double rise", "hard", "powerful", "aggressive"]
+                "value": "heavy",
+                "synonyms": ["strong", "intense", "strong vibration", "double rise", "hard", "powerful", "aggressive"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "VibrationStrengthType",
+          "values": [
+            {
+              "name": {
+                "value": "low",
+                "synonyms": ["lowest", "weak", "minimum"]
+              }
+            },
+            {
+              "name": {
+                "value": "medium",
+                "synonyms": ["middle", "normal", "regular", "default"]
+              }
+            },
+            {
+              "name": {
+                "value": "high",
+                "synonyms": ["highest", "max", "maximum", "full"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TempDirectionType",
+          "values": [
+            {
+              "name": {
+                "value": "warming",
+                "synonyms": ["warm", "warmer", "heat", "heating", "hot", "plus", "positive"]
+              }
+            },
+            {
+              "name": {
+                "value": "cooling",
+                "synonyms": ["cool", "cooler", "cold", "chill", "minus", "negative"]
               }
             }
           ]

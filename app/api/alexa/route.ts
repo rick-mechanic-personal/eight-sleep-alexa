@@ -9,6 +9,9 @@ import {
   parseDuration,
   parseDay,
   parseVibrationPattern,
+  parseStrength,
+  parseTempLevel,
+  formatTempLevel,
 } from '@/lib/alexa';
 import {
   type Alarm,
@@ -94,7 +97,9 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         ask(
           'You can say: ' +
             '"set an alarm for 7 AM" to create an alarm. ' +
-            '"set a gentle alarm for 6:30" or "set a strong alarm for 7" for different vibrations. ' +
+            '"set a gradual alarm" or "set a heavy alarm" for the vibration pattern. ' +
+            '"set an alarm for 7 with high strength" for vibration strength. ' +
+            '"set an alarm for 7 warming level 3" or "cooling level 5" for wake temperature. ' +
             '"snooze" or "snooze for 10 minutes" to snooze. ' +
             '"dismiss alarm" to stop the current alarm. ' +
             '"cancel my alarm" to delete the next alarm. ' +
@@ -118,9 +123,9 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const list = sorted
         .map((a) => {
           const parts: string[] = [formatTime(a.time)];
-          if (a.vibration.pattern === 'INTENSE') parts.push('strong vibration');
+          if (a.vibration.pattern === 'INTENSE') parts.push('heavy vibration');
           if (a.thermal.enabled && a.thermal.level !== 0)
-            parts.push(a.thermal.level > 0 ? 'warming' : 'cooling');
+            parts.push(formatTempLevel(a.thermal.level));
           if (a.smart.lightSleepEnabled) parts.push('smart wake');
           return parts.join(' with ');
         })
@@ -140,6 +145,9 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const timeValue = getSlot(alexaReq, 'time');
       const dayValue = getSlot(alexaReq, 'day');
       const vibrationValue = getSlot(alexaReq, 'vibration');
+      const strengthValue = getSlot(alexaReq, 'strength');
+      const tempDirectionValue = getSlot(alexaReq, 'tempDirection');
+      const tempLevelValue = getSlot(alexaReq, 'tempLevel');
 
       if (!timeValue) {
         return json(ask('What time should I set the alarm for?', 'Please say a time, like 7 AM.'));
@@ -151,13 +159,24 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const day = dayValue ? parseDay(dayValue) : null;
       const days = day ? { [day]: true } : undefined;
       const vibrationPattern = vibrationValue ? parseVibrationPattern(vibrationValue) : 'RISE';
+      const powerLevel = strengthValue ? parseStrength(strengthValue) : 50;
+      const tempLevel = tempLevelValue
+        ? parseTempLevel(tempDirectionValue, tempLevelValue)
+        : null;
 
-      await createAlarm({ time, days, vibration: { pattern: vibrationPattern } });
+      await createAlarm({
+        time,
+        days,
+        vibration: { pattern: vibrationPattern, powerLevel },
+        thermal: tempLevel !== null ? { enabled: true, level: tempLevel } : undefined,
+      });
 
       const friendlyTime = formatTime(time);
-      const vibDesc = vibrationPattern === 'INTENSE' ? 'strong vibration' : 'gentle rise';
+      const parts = [vibrationPattern === 'INTENSE' ? 'heavy vibration' : 'gradual vibration'];
+      if (strengthValue) parts.push(`${strengthValue.toLowerCase()} strength`);
+      if (tempLevel !== null) parts.push(formatTempLevel(tempLevel));
       const dayMsg = day ? ` every ${day}` : '';
-      return json(speak(`Done! Alarm set for ${friendlyTime}${dayMsg} with ${vibDesc}.`));
+      return json(speak(`Done! Alarm set for ${friendlyTime}${dayMsg} with ${parts.join(', ')}.`));
     }
 
     // ── Snooze (only works while an alarm is ringing or snoozed) ───────────────
@@ -239,6 +258,54 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
 
       const desc = pattern === 'INTENSE' ? 'strong' : 'gentle rise';
       return json(speak(`Updated your ${formatTime(next.time)} alarm to ${desc} vibration.`));
+    }
+
+    // ── Set vibration strength on next alarm ──────────────────────────────────
+    if (intentName === 'SetStrengthIntent') {
+      const strengthValue = getSlot(alexaReq, 'strength');
+      if (!strengthValue)
+        return json(ask('Should the strength be low, medium, or high?', 'Low, medium, or high?'));
+
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const next = findNextAlarm(alarms, nowMinutes);
+      if (!next) return json(speak("You don't have an upcoming alarm to update."));
+
+      const powerLevel = parseStrength(strengthValue);
+      await updateAlarm(next, { vibration: { ...next.vibration, powerLevel } });
+
+      const desc = powerLevel === 20 ? 'low' : powerLevel === 100 ? 'high' : 'medium';
+      return json(
+        speak(`Vibration strength set to ${desc} for your ${formatTime(next.time)} alarm.`),
+      );
+    }
+
+    // ── Set wake temperature on next alarm ────────────────────────────────────
+    if (intentName === 'SetTemperatureAlarmIntent') {
+      const tempDirectionValue = getSlot(alexaReq, 'tempDirection');
+      const tempLevelValue = getSlot(alexaReq, 'tempLevel');
+      if (!tempLevelValue)
+        return json(
+          ask(
+            'What temperature level, from cooling ten to warming ten?',
+            'Say something like warming three or cooling five.',
+          ),
+        );
+
+      const tempLevel = parseTempLevel(tempDirectionValue, tempLevelValue);
+      if (tempLevel === null)
+        return json(speak("Sorry, I couldn't understand that temperature level."));
+
+      const { alarms, nowMinutes } = await alarmsWithNow();
+      const next = findNextAlarm(alarms, nowMinutes);
+      if (!next) return json(speak("You don't have an upcoming alarm to update."));
+
+      await updateAlarm(next, { thermal: { enabled: true, level: tempLevel } });
+
+      return json(
+        speak(
+          `Your ${formatTime(next.time)} alarm will wake you with ${formatTempLevel(tempLevel)}.`,
+        ),
+      );
     }
 
     // ── Toggle thermal on next alarm ───────────────────────────────────────────

@@ -135,6 +135,9 @@ EIGHT_SLEEP_PASSWORD=yourpassword`}
         <div className="grid gap-3 sm:grid-cols-2">
           {[
             ['Set alarm', '"Alexa, tell Eight Sleep to set an alarm for 7 AM"'],
+            ['Set with pattern', '"… set a heavy alarm for 7 AM" (gradual or heavy)'],
+            ['Set with strength', '"… set an alarm for 7 AM with high strength"'],
+            ['Set with temperature', '"… set an alarm for 7 AM warming level 3"'],
             ['Snooze', '"Alexa, tell Eight Sleep to snooze"'],
             ['Snooze with time', '"Alexa, tell Eight Sleep to snooze for 10 minutes"'],
             ['Dismiss alarm', '"Alexa, tell Eight Sleep to dismiss alarm"'],
