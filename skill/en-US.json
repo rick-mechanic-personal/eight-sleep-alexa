@@ -219,7 +219,7 @@
           "slots": [
             {
               "name": "thermal",
-              "type": "AMAZON.OnOff"
+              "type": "OnOffType"
             }
           ],
           "samples": [
@@ -239,7 +239,7 @@
           "slots": [
             {
               "name": "smart",
-              "type": "AMAZON.OnOff"
+              "type": "OnOffType"
             }
           ],
           "samples": [
@@ -261,13 +261,29 @@
             {
               "name": {
                 "value": "gradual",
-                "synonyms": ["gentle", "gentle rise", "soft", "rise", "slow", "easy", "light"]
+                "synonyms": [
+                  "gentle",
+                  "gentle rise",
+                  "soft",
+                  "rise",
+                  "slow",
+                  "easy",
+                  "light"
+                ]
               }
             },
             {
               "name": {
                 "value": "heavy",
-                "synonyms": ["strong", "intense", "strong vibration", "double rise", "hard", "powerful", "aggressive"]
+                "synonyms": [
+                  "strong",
+                  "intense",
+                  "strong vibration",
+                  "double rise",
+                  "hard",
+                  "powerful",
+                  "aggressive"
+                ]
               }
             }
           ]
@@ -278,19 +294,33 @@
             {
               "name": {
                 "value": "low",
-                "synonyms": ["lowest", "weak", "minimum"]
+                "synonyms": [
+                  "lowest",
+                  "weak",
+                  "minimum"
+                ]
               }
             },
             {
               "name": {
                 "value": "medium",
-                "synonyms": ["middle", "normal", "regular", "default"]
+                "synonyms": [
+                  "middle",
+                  "normal",
+                  "regular",
+                  "default"
+                ]
               }
             },
             {
               "name": {
                 "value": "high",
-                "synonyms": ["highest", "max", "maximum", "full"]
+                "synonyms": [
+                  "highest",
+                  "max",
+                  "maximum",
+                  "full"
+                ]
               }
             }
           ]
@@ -301,13 +331,55 @@
             {
               "name": {
                 "value": "warming",
-                "synonyms": ["warm", "warmer", "heat", "heating", "hot", "plus", "positive"]
+                "synonyms": [
+                  "warm",
+                  "warmer",
+                  "heat",
+                  "heating",
+                  "hot",
+                  "plus",
+                  "positive"
+                ]
               }
             },
             {
               "name": {
                 "value": "cooling",
-                "synonyms": ["cool", "cooler", "cold", "chill", "minus", "negative"]
+                "synonyms": [
+                  "cool",
+                  "cooler",
+                  "cold",
+                  "chill",
+                  "minus",
+                  "negative"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OnOffType",
+          "values": [
+            {
+              "name": {
+                "value": "on",
+                "synonyms": [
+                  "enable",
+                  "enabled",
+                  "yes",
+                  "active"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "off",
+                "synonyms": [
+                  "disable",
+                  "disabled",
+                  "no",
+                  "inactive"
+                ]
               }
             }
           ]
