@@ -164,7 +164,7 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         ? parseTempLevel(tempDirectionValue, tempLevelValue)
         : null;
 
-      await createAlarm({
+      const created = await createAlarm({
         time,
         days,
         vibration: { pattern: vibrationPattern, powerLevel },
@@ -172,11 +172,26 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       });
 
       const friendlyTime = formatTime(time);
-      const parts = [vibrationPattern === 'INTENSE' ? 'heavy vibration' : 'gradual vibration'];
+      if (!created) {
+        return json(
+          speak(
+            `I asked your Eight Sleep to set an alarm for ${friendlyTime}, but couldn't confirm it was saved. Please check the app.`,
+          ),
+        );
+      }
+
+      const parts = [
+        created.vibration.pattern === 'INTENSE' ? 'heavy vibration' : 'gradual vibration',
+      ];
       if (strengthValue) parts.push(`${strengthValue.toLowerCase()} strength`);
-      if (tempLevel !== null) parts.push(formatTempLevel(tempLevel));
+      if (created.thermal.enabled && created.thermal.level !== 0)
+        parts.push(formatTempLevel(created.thermal.level));
       const dayMsg = day ? ` every ${day}` : '';
-      return json(speak(`Done! Alarm set for ${friendlyTime}${dayMsg} with ${parts.join(', ')}.`));
+      return json(
+        speak(
+          `Done! Your Eight Sleep confirmed the alarm for ${friendlyTime}${dayMsg} with ${parts.join(', ')}.`,
+        ),
+      );
     }
 
     // ── Snooze (only works while an alarm is ringing or snoozed) ───────────────
@@ -199,7 +214,9 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         throw err;
       }
       const word = minutes === 1 ? 'minute' : 'minutes';
-      return json(speak(`Snoozed for ${minutes} ${word}. Sweet dreams.`));
+      return json(
+        speak(`Your Eight Sleep confirmed the snooze for ${minutes} ${word}. Sweet dreams.`),
+      );
     }
 
     // ── Dismiss (stop currently ringing alarm) ─────────────────────────────────
@@ -218,7 +235,7 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         }
         throw err;
       }
-      return json(speak('Alarm dismissed. Good morning!'));
+      return json(speak('Your Eight Sleep confirmed the alarm is dismissed. Good morning!'));
     }
 
     // ── Cancel / delete alarm ──────────────────────────────────────────────────
@@ -234,30 +251,48 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
           return json(
             speak(`I couldn't find an alarm for ${formatTime(time ?? timeValue)}.`),
           );
-        await deleteAlarm(target.id);
-        return json(speak(`Alarm for ${formatTime(target.time)} has been cancelled.`));
+        const gone = await deleteAlarm(target.id);
+        return json(
+          speak(
+            gone
+              ? `Your Eight Sleep confirmed the ${formatTime(target.time)} alarm was removed.`
+              : `I asked your Eight Sleep to cancel the ${formatTime(target.time)} alarm, but couldn't confirm it was removed. Please check the app.`,
+          ),
+        );
       }
 
       const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak('You have no alarms to cancel.'));
-      await deleteAlarm(next.id);
-      return json(speak(`Your ${formatTime(next.time)} alarm has been cancelled.`));
+      const gone = await deleteAlarm(next.id);
+      return json(
+        speak(
+          gone
+            ? `Your Eight Sleep confirmed the ${formatTime(next.time)} alarm was removed.`
+            : `I asked your Eight Sleep to cancel the ${formatTime(next.time)} alarm, but couldn't confirm it was removed. Please check the app.`,
+        ),
+      );
     }
 
     // ── Toggle vibration on next alarm ─────────────────────────────────────────
     if (intentName === 'SetVibrationIntent') {
       const vibrationValue = getSlot(alexaReq, 'vibration');
-      if (!vibrationValue) return json(ask('Should I set gentle or strong vibration?', 'Gentle or strong?'));
+      if (!vibrationValue) return json(ask('Should I set gradual or heavy vibration?', 'Gradual or heavy?'));
 
       const { alarms, nowMinutes } = await alarmsWithNow();
       const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
       const pattern = parseVibrationPattern(vibrationValue);
-      await updateAlarm(next, { vibration: { ...next.vibration, pattern } });
+      const updated = await updateAlarm(next, { vibration: { ...next.vibration, pattern } });
 
-      const desc = pattern === 'INTENSE' ? 'strong' : 'gentle rise';
-      return json(speak(`Updated your ${formatTime(next.time)} alarm to ${desc} vibration.`));
+      const desc = pattern === 'INTENSE' ? 'heavy' : 'gradual';
+      return json(
+        speak(
+          updated?.vibration.pattern === pattern
+            ? `Your Eight Sleep confirmed ${desc} vibration for the ${formatTime(next.time)} alarm.`
+            : `I asked your Eight Sleep to change the vibration, but couldn't confirm the update. Please check the app.`,
+        ),
+      );
     }
 
     // ── Set vibration strength on next alarm ──────────────────────────────────
@@ -271,11 +306,15 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
       const powerLevel = parseStrength(strengthValue);
-      await updateAlarm(next, { vibration: { ...next.vibration, powerLevel } });
+      const updated = await updateAlarm(next, { vibration: { ...next.vibration, powerLevel } });
 
       const desc = powerLevel === 20 ? 'low' : powerLevel === 100 ? 'high' : 'medium';
       return json(
-        speak(`Vibration strength set to ${desc} for your ${formatTime(next.time)} alarm.`),
+        speak(
+          updated?.vibration.powerLevel === powerLevel
+            ? `Your Eight Sleep confirmed ${desc} vibration strength for the ${formatTime(next.time)} alarm.`
+            : `I asked your Eight Sleep to change the strength, but couldn't confirm the update. Please check the app.`,
+        ),
       );
     }
 
@@ -299,11 +338,13 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
       const next = findNextAlarm(alarms, nowMinutes);
       if (!next) return json(speak("You don't have an upcoming alarm to update."));
 
-      await updateAlarm(next, { thermal: { enabled: true, level: tempLevel } });
+      const updated = await updateAlarm(next, { thermal: { enabled: true, level: tempLevel } });
 
       return json(
         speak(
-          `Your ${formatTime(next.time)} alarm will wake you with ${formatTempLevel(tempLevel)}.`,
+          updated?.thermal.enabled && updated.thermal.level === tempLevel
+            ? `Your Eight Sleep confirmed the ${formatTime(next.time)} alarm will wake you with ${formatTempLevel(tempLevel)}.`
+            : `I asked your Eight Sleep to change the wake temperature, but couldn't confirm the update. Please check the app.`,
         ),
       );
     }
@@ -320,13 +361,22 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         thermalEnabled = false;
       }
 
-      await updateAlarm(next, { thermal: { ...next.thermal, enabled: thermalEnabled } });
+      const updated = await updateAlarm(next, {
+        thermal: { ...next.thermal, enabled: thermalEnabled },
+      });
 
+      if (updated?.thermal.enabled !== thermalEnabled) {
+        return json(
+          speak(
+            'I asked your Eight Sleep to change thermal wake, but couldn\'t confirm the update. Please check the app.',
+          ),
+        );
+      }
       return json(
         speak(
           thermalEnabled
-            ? `Thermal wake turned on for your ${formatTime(next.time)} alarm.`
-            : `Thermal wake turned off for your ${formatTime(next.time)} alarm.`,
+            ? `Your Eight Sleep confirmed thermal wake is on for the ${formatTime(next.time)} alarm.`
+            : `Your Eight Sleep confirmed thermal wake is off for the ${formatTime(next.time)} alarm.`,
         ),
       );
     }
@@ -342,13 +392,22 @@ async function handleAlexaRequest(alexaReq: AlexaRequest) {
         !smartValue ||
         !(smartValue.toLowerCase().includes('off') || smartValue.toLowerCase().includes('no'));
 
-      await updateAlarm(next, { smart: { ...next.smart, lightSleepEnabled: enabled } });
+      const updated = await updateAlarm(next, {
+        smart: { ...next.smart, lightSleepEnabled: enabled },
+      });
 
+      if (updated?.smart.lightSleepEnabled !== enabled) {
+        return json(
+          speak(
+            'I asked your Eight Sleep to change smart wake, but couldn\'t confirm the update. Please check the app.',
+          ),
+        );
+      }
       return json(
         speak(
           enabled
-            ? `Smart wake enabled. Eight Sleep will wake you during light sleep before ${formatTime(next.time)}.`
-            : `Smart wake disabled for your ${formatTime(next.time)} alarm.`,
+            ? `Your Eight Sleep confirmed smart wake is on. It will wake you during light sleep before ${formatTime(next.time)}.`
+            : `Your Eight Sleep confirmed smart wake is off for the ${formatTime(next.time)} alarm.`,
         ),
       );
     }

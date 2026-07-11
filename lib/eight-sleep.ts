@@ -197,7 +197,8 @@ export async function getAlarms(): Promise<Alarm[]> {
   return data?.alarms ?? [];
 }
 
-export async function createAlarm(opts: CreateAlarmOptions): Promise<void> {
+/** Returns the created alarm as echoed back by Eight Sleep, or null if it can't be found. */
+export async function createAlarm(opts: CreateAlarmOptions): Promise<Alarm | null> {
   const allDays = {
     monday: false,
     tuesday: false,
@@ -233,15 +234,20 @@ export async function createAlarm(opts: CreateAlarmOptions): Promise<void> {
     },
   };
 
-  // Responds with the updated full alarm list
-  await api('/v1/users/{userId}/alarms', {
+  // Responds with the updated full alarm list — read the new alarm back so the
+  // caller can confirm Eight Sleep actually saved it.
+  const data = (await api('/v1/users/{userId}/alarms', {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  })) as { alarms?: Alarm[] };
+  return data?.alarms?.find((a) => a.enabled && a.time === opts.time) ?? null;
 }
 
-/** PUT requires the full writable alarm object; server-computed fields are stripped. */
-export async function updateAlarm(alarm: Alarm, patch: Partial<Alarm>): Promise<void> {
+/**
+ * PUT requires the full writable alarm object; server-computed fields are stripped.
+ * Reads the alarm back afterwards so the caller can confirm the change stuck.
+ */
+export async function updateAlarm(alarm: Alarm, patch: Partial<Alarm>): Promise<Alarm | null> {
   const merged = { ...alarm, ...patch };
   const body = {
     id: alarm.id,
@@ -257,10 +263,17 @@ export async function updateAlarm(alarm: Alarm, patch: Partial<Alarm>): Promise<
     method: 'PUT',
     body: JSON.stringify(body),
   });
+  const alarms = await getAlarms();
+  return alarms.find((a) => a.id === alarm.id) ?? null;
 }
 
-export async function deleteAlarm(alarmId: string): Promise<void> {
-  await api(`/v1/users/{userId}/alarms/${alarmId}`, { method: 'DELETE' });
+/** Returns true when Eight Sleep confirms the alarm is gone from the list. */
+export async function deleteAlarm(alarmId: string): Promise<boolean> {
+  const data = (await api(`/v1/users/{userId}/alarms/${alarmId}`, {
+    method: 'DELETE',
+  })) as { alarms?: Alarm[] } | null;
+  const remaining = data?.alarms ?? (await getAlarms());
+  return !remaining.some((a) => a.id === alarmId);
 }
 
 // ─── Active alarm actions ─────────────────────────────────────────────────────
