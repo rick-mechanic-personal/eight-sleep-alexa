@@ -168,13 +168,13 @@ async function api(
     },
   });
 
-  if (res.status === 204) return null;
-
   if (!res.ok) {
     throw new EightSleepApiError(res.status, url, await res.text());
   }
 
-  return res.json();
+  // Some endpoints (e.g. snooze/dismiss) return 200 with an empty body
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // ─── User info ────────────────────────────────────────────────────────────────
@@ -315,7 +315,9 @@ function timeToMinutes(t: string): number {
 
 /**
  * Alarm most likely ringing or snoozed right now: snoozing, or enabled with a
- * fire time in the past ~45 min that hasn't been dismissed since it fired.
+ * fire time from ~35 min ahead (smart wake rings up to 30 min BEFORE the set
+ * time) to ~45 min behind, that hasn't been dismissed since it fired.
+ * False positives are safe: the snooze/dismiss endpoints 409 when not ringing.
  */
 export function findActiveAlarm(alarms: Alarm[], nowMinutes: number): Alarm | null {
   const snoozed = alarms.find((a) => a.snoozing);
@@ -325,11 +327,13 @@ export function findActiveAlarm(alarms: Alarm[], nowMinutes: number): Alarm | nu
     alarms
       .filter((a) => a.enabled)
       .find((a) => {
-        const diff = nowMinutes - timeToMinutes(a.time);
-        const recentlyFired = diff >= 0 && diff <= 45;
+        let diff = nowMinutes - timeToMinutes(a.time);
+        if (diff < -720) diff += 1440; // midnight wraparound
+        if (diff > 720) diff -= 1440;
+        const inRingingWindow = diff >= -35 && diff <= 45;
         const dismissed =
           new Date(a.dismissedUntil).getTime() > Date.now() - 60 * 60_000;
-        return recentlyFired && !dismissed;
+        return inRingingWindow && !dismissed;
       }) ?? null
   );
 }
